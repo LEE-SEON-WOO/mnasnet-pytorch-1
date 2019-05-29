@@ -40,3 +40,45 @@ class SqueezeExcitation(nn.Module):
 
     def forward(self, x):
         return x * self.se(x)
+
+
+class Identity(nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super(Identity, self).__init__()
+
+    def forward(self, *input):
+        return input
+
+
+class MobileInverted(nn.Module):
+
+    def __init__(self, inp, oup, stride, expand_ratio, kernel_size=3, se_ratio=0):
+        super(MobileInverted, self).__init__()
+        self.use_residual = inp == oup and stride == 1
+
+        SEBlock = Identity if se_ratio == 0 else SqueezeExcitation
+
+        layers = []
+
+        hidden_dim = int(inp * expand_ratio)
+        if inp != hidden_dim:
+            layers.append(ConvBNReLU(inp, hidden_dim, 1))
+
+        layers += [
+            # dw
+            ConvBNReLU(hidden_dim, hidden_dim, kernel_size, stride=stride, groups=hidden_dim),
+            # se
+            SqueezeExcitation(hidden_dim, ratio=se_ratio),
+            # pw
+            nn.Conv2d(hidden_dim, oup, 1, bias=False),
+            nn.BatchNorm2d(oup)
+        ]
+
+        self.conv = nn.Sequential(*layers)
+
+    def forward(self, x):
+        if self.use_residual:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
