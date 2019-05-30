@@ -14,18 +14,6 @@ class ConvBNReLU(nn.Sequential):
         super(ConvBNReLU, self).__init__(*layers)
 
 
-class SepConv(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels):
-        super(SepConv, self).__init__(
-            nn.Conv2d(in_channels, in_channels, 3, padding=1, bias=False),
-            nn.BatchNorm2d(in_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels, out_channels, 1, bias=False),
-            nn.BatchNorm2d(out_channels),
-        )
-
-
 class SqueezeExcitation(nn.Module):
 
     def __init__(self, num_features, ratio=0.25):
@@ -41,15 +29,6 @@ class SqueezeExcitation(nn.Module):
 
     def forward(self, x):
         return x * self.se(x)
-
-
-class Identity(nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super(Identity, self).__init__()
-
-    def forward(self, *input):
-        return input
 
 
 class MobileInverted(nn.Module):
