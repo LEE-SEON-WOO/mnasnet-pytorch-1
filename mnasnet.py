@@ -14,14 +14,13 @@ class ConvBNReLU(nn.Sequential):
 
 class SqueezeExcitation(nn.Module):
 
-    def __init__(self, num_features, reduction_ratio=4):
+    def __init__(self, num_features, reduced_dim):
         super(SqueezeExcitation, self).__init__()
-        hidden_dim = int(num_features / reduction_ratio)
         self.se = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(num_features, hidden_dim, 1, bias=True),
+            nn.Conv2d(num_features, reduced_dim, 1, bias=True),
             nn.ReLU(inplace=True),
-            nn.Conv2d(hidden_dim, num_features, 1, bias=True),
+            nn.Conv2d(reduced_dim, num_features, 1, bias=True),
             nn.Sigmoid(),
         )
 
@@ -49,7 +48,8 @@ class MBConvBlock(nn.Module):
 
         # se
         if reduction_ratio != 1:
-            layers += [SqueezeExcitation(hidden_dim, reduction_ratio=reduction_ratio)]
+            reduced_dim = max(1, int(in_planes / reduction_ratio))
+            layers += [SqueezeExcitation(hidden_dim, reduced_dim)]
 
         # pw-linear
         layers += [
@@ -110,3 +110,22 @@ class MnasNetA1(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.classifier(x)
         return x
+
+
+def numel(model: nn.Module):
+    return sum(p.numel() for p in model.parameters())
+
+
+def main():
+    import torch
+    m = MnasNetA1(width_mult=1.0)
+    x = torch.randn(1, 3, 224, 224)
+    with torch.no_grad():
+        y = m(x)
+        print(y.size())
+
+    print(numel(m))
+
+
+if __name__ == "__main__":
+    main()
