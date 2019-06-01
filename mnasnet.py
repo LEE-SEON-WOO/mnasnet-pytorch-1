@@ -3,22 +3,20 @@ from torch import nn
 
 class ConvBNReLU(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, groups=1):
+    def __init__(self, in_planes, out_planes, kernel_size=1, stride=1, groups=1):
         padding = (kernel_size - 1) // 2
-        layers = [
-            nn.Conv2d(
-                in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        ]
-        super(ConvBNReLU, self).__init__(*layers)
+        super(ConvBNReLU, self).__init__(
+            nn.Conv2d(in_planes, out_planes, kernel_size, stride=stride, padding=padding, groups=groups, bias=False),
+            nn.BatchNorm2d(out_planes),
+            nn.ReLU(inplace=True),
+        )
 
 
 class SqueezeExcitation(nn.Module):
 
-    def __init__(self, num_features, ratio=0.25):
+    def __init__(self, num_features, reduction_ratio=4):
         super(SqueezeExcitation, self).__init__()
-        hidden_dim = int(num_features * ratio)
+        hidden_dim = int(num_features / reduction_ratio)
         self.se = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(num_features, hidden_dim, 1, bias=True),
@@ -31,32 +29,32 @@ class SqueezeExcitation(nn.Module):
         return x * self.se(x)
 
 
-class MobileInverted(nn.Module):
+class MBConvBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, stride, expand_ratio, kernel_size=3, se_ratio=0, no_skip=False):
-        super(MobileInverted, self).__init__()
-        self.use_residual = in_channels == out_channels and stride == 1 and not no_skip
+    def __init__(self, in_planes, out_planes, stride, expand_ratio, kernel_size=3, reduction_ratio=1, no_skip=False):
+        super(MBConvBlock, self).__init__()
+        self.use_residual = in_planes == out_planes and stride == 1 and not no_skip
         assert stride in [1, 2]
         assert kernel_size in [3, 5]
 
-        hidden_dim = int(in_channels * expand_ratio)
+        hidden_dim = int(in_planes * expand_ratio)
         layers = []
 
         # pw
-        if in_channels != hidden_dim:
-            layers += [ConvBNReLU(in_channels, hidden_dim, kernel_size=1)]
+        if in_planes != hidden_dim:
+            layers += [ConvBNReLU(in_planes, hidden_dim, kernel_size=1)]
 
         # dw
         layers += [ConvBNReLU(hidden_dim, hidden_dim, kernel_size, stride=stride, groups=hidden_dim)]
 
         # se
-        if se_ratio != 0:
-            layers += [SqueezeExcitation(hidden_dim, ratio=se_ratio)]
+        if reduction_ratio != 1:
+            layers += [SqueezeExcitation(hidden_dim, reduction_ratio=reduction_ratio)]
 
         # pw-linear
         layers += [
-            nn.Conv2d(hidden_dim, out_channels, 1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            nn.Conv2d(hidden_dim, out_planes, 1, bias=False),
+            nn.BatchNorm2d(out_planes),
         ]
 
         self.conv = nn.Sequential(*layers)
@@ -75,16 +73,16 @@ class MnasNetA1(nn.Module):
 
         settings = [
             # t, c, n, s, k, r
-            [1, 16, 1, 1, 3, 0],  # SepConv_3x3
-            [6, 24, 2, 2, 3, 0],  # MBConv6_3x3
-            [3, 40, 3, 2, 5, 0.25],  # MBConv3_5x5, SE
-            [6, 80, 4, 2, 3, 0],  # MBConv6_3x3
-            [6, 112, 2, 1, 3, 0.25],  # MBConv6_3x3, SE
-            [6, 160, 3, 2, 5, 0.25],  # MBConv6_5x5, SE
-            [6, 320, 1, 1, 3, 0]  # MBConv6_3x3
+            [1, 16, 1, 1, 3, 1],  # SepConv_3x3
+            [6, 24, 2, 2, 3, 1],  # MBConv6_3x3
+            [3, 40, 3, 2, 5, 4],  # MBConv3_5x5, SE
+            [6, 80, 4, 2, 3, 1],  # MBConv6_3x3
+            [6, 112, 2, 1, 3, 4],  # MBConv6_3x3, SE
+            [6, 160, 3, 2, 5, 4],  # MBConv6_5x5, SE
+            [6, 320, 1, 1, 3, 1]  # MBConv6_3x3
         ]
 
-        features = [ConvBNReLU(3, int(32 * width_mult), 3)]
+        features = [ConvBNReLU(3, int(32 * width_mult), 3, stride=2)]
 
         in_channels = int(32 * width_mult)
         for i, (t, c, n, s, k, r) in enumerate(settings):
@@ -93,13 +91,13 @@ class MnasNetA1(nn.Module):
             for j in range(n):
                 stride = s if j == 0 else 1
                 features += [
-                    MobileInverted(in_channels, out_channels, stride, t, kernel_size=k, se_ratio=r, no_skip=no_skip)
+                    MBConvBlock(
+                        in_channels, out_channels, stride, t, kernel_size=k, reduction_ratio=r, no_skip=no_skip)
                 ]
                 in_channels = out_channels
 
         features += [ConvBNReLU(in_channels, 1280, kernel_size=1)]
         self.features = nn.Sequential(*features)
-
         self.avg_pool = nn.AvgPool2d(kernel_size=7)
         self.classifier = nn.Sequential(
             nn.Dropout(0.2),
@@ -108,6 +106,7 @@ class MnasNetA1(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
-        x = x.mean([2, 3])
+        x = self.avg_pool(x)
+        x = x.view(x.size(0), -1)
         x = self.classifier(x)
         return x
