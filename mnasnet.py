@@ -90,10 +90,7 @@ class MnasNetA1(nn.Module):
             no_skip = True if i == 0 else False
             for j in range(n):
                 stride = s if j == 0 else 1
-                features += [
-                    MBConvBlock(
-                        in_channels, out_channels, stride, t, kernel_size=k, reduction_ratio=r, no_skip=no_skip)
-                ]
+                features += [MBConvBlock(in_channels, out_channels, stride, t, k, reduction_ratio=r, no_skip=no_skip)]
                 in_channels = out_channels
 
         features += [ConvBNReLU(in_channels, 1280, kernel_size=1)]
