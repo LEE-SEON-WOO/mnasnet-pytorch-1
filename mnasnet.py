@@ -3,13 +3,18 @@ from torch import nn
 
 class ConvBNReLU(nn.Sequential):
 
-    def __init__(self, in_planes, out_planes, kernel_size=1, stride=1, groups=1):
-        padding = (kernel_size - 1) // 2
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, groups=1):
+        padding = self._get_padding(kernel_size, stride)
         super(ConvBNReLU, self).__init__(
-            nn.Conv2d(in_planes, out_planes, kernel_size, stride=stride, padding=padding, groups=groups, bias=False),
+            nn.ZeroPad2d(padding),
+            nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding=0, groups=groups, bias=False),
             nn.BatchNorm2d(out_planes),
             nn.ReLU(inplace=True),
         )
+
+    def _get_padding(self, kernel_size, stride):
+        p = max(kernel_size - stride, 0)
+        return [p // 2, p - p // 2, p // 2, p - p // 2]
 
 
 class SqueezeExcitation(nn.Module):
